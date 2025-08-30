@@ -29,3 +29,5 @@ numpy<2.0
 pandas
 chromadb==0.4.24
 pysqlite3-binary
+requests
+urllib3

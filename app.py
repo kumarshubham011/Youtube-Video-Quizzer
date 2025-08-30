@@ -139,7 +139,66 @@ def main():
         )
 
         if youtube_url and st.session_state.pipeline:
-            if st.button("🚀 Process Video", type="primary"):
+            col_buttons = st.columns([2, 1])
+            with col_buttons[0]:
+                process_button = st.button("🚀 Process Video", type="primary")
+            with col_buttons[1]:
+                demo_button = st.button(
+                    "🎯 Try Demo Mode", type="secondary", help="Test the app with sample content")
+
+            if demo_button:
+                with st.spinner("Setting up demo mode..."):
+                    try:
+                        # Create sample transcript for demo
+                        demo_transcript = """
+                        Welcome to this educational video about artificial intelligence and machine learning. 
+                        In this presentation, we'll explore the fundamental concepts of AI, including supervised learning, 
+                        unsupervised learning, and reinforcement learning. Machine learning is a subset of artificial 
+                        intelligence that enables computers to learn and make decisions from data without being explicitly programmed.
+                        
+                        Supervised learning involves training algorithms on labeled data, where we know the correct outputs. 
+                        Common examples include classification tasks like email spam detection and regression tasks like 
+                        predicting house prices. The algorithm learns patterns from the training data and can then make 
+                        predictions on new, unseen data.
+                        
+                        Unsupervised learning works with unlabeled data, finding hidden patterns and structures. 
+                        Clustering algorithms group similar data points together, while dimensionality reduction techniques 
+                        help visualize high-dimensional data. These methods are particularly useful for exploratory data analysis.
+                        
+                        Reinforcement learning is inspired by behavioral psychology, where an agent learns through interaction 
+                        with an environment. The agent receives rewards or penalties for its actions and learns to maximize 
+                        cumulative rewards over time. This approach has been successfully applied to game playing, robotics, 
+                        and autonomous systems.
+                        
+                        Neural networks are a key component of modern AI systems, inspired by biological neurons. 
+                        Deep learning uses multi-layered neural networks to learn complex patterns in data. 
+                        Applications include image recognition, natural language processing, and speech recognition.
+                        
+                        The field of AI continues to evolve rapidly, with new architectures and techniques emerging regularly. 
+                        As we advance, it's important to consider the ethical implications and ensure AI systems are developed 
+                        responsibly for the benefit of society.
+                        """
+
+                        # Simulate video processing
+                        st.session_state.pipeline.transcript = demo_transcript
+                        st.session_state.pipeline.create_vector_store(
+                            demo_transcript)
+                        st.session_state.video_processed = True
+
+                        st.success(
+                            "✅ Demo mode activated! You can now generate quizzes and ask questions.")
+                        st.session_state.chat_history = []
+
+                        st.info(
+                            "🎯 **Demo Content:** This is sample content about AI and Machine Learning for testing purposes.")
+
+                        with st.expander("📝 View Demo Transcript"):
+                            st.text(demo_transcript[:500] + "...")
+
+                    except Exception as e:
+                        st.error(f"❌ Error setting up demo: {str(e)}")
+
+            elif process_button:
                 with st.spinner("Processing video... This may take several minutes."):
                     try:
                         video_info = st.session_state.pipeline.get_video_info(

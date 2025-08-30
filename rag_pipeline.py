@@ -78,109 +78,119 @@ class YouTubeQuizzerPipeline:
                     f"Error downloading YouTube video: {error_msg}")
 
     def _download_with_pytube(self, url: str) -> str:
-        try:
-            yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+        # Try multiple pytube approaches
+        approaches = [
+            # Approach 1: Standard
+            lambda u: YouTube(u),
+            # Approach 2: Without OAuth
+            lambda u: YouTube(u, use_oauth=False, allow_oauth_cache=False),
+            # Approach 3: With different client
+            lambda u: YouTube(u, client='WEB', use_oauth=False)
+        ]
 
-            import time
-            time.sleep(2)
+        for i, approach in enumerate(approaches):
+            try:
+                print(f"Trying pytube approach {i+1}/3...")
+                yt = approach(url)
 
-            audio_stream = yt.streams.filter(
-                only_audio=True, file_extension='mp4').first()
-            if not audio_stream:
-                audio_stream = yt.streams.filter(only_audio=True).first()
-            if not audio_stream:
-                raise Exception("No audio stream found for this video")
+                import time
+                time.sleep(2)
 
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False, suffix=".mp4")
-            temp_path = temp_file.name
-            temp_file.close()
+                # Try different stream filters
+                stream_filters = [
+                    lambda s: s.filter(
+                        only_audio=True, file_extension='mp4').first(),
+                    lambda s: s.filter(only_audio=True).first(),
+                    lambda s: s.filter(
+                        adaptive=True, file_extension='mp4', only_audio=True).first(),
+                    lambda s: s.filter(progressive=False,
+                                       file_extension='mp4').first()
+                ]
 
-            audio_stream.download(filename=temp_path)
-            return temp_path
-        except Exception as e:
-            print(f"Pytube download failed: {e}")
-            raise e
+                audio_stream = None
+                for stream_filter in stream_filters:
+                    try:
+                        audio_stream = stream_filter(yt.streams)
+                        if audio_stream:
+                            break
+                    except:
+                        continue
+
+                if not audio_stream:
+                    continue
+
+                temp_file = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".mp4")
+                temp_path = temp_file.name
+                temp_file.close()
+
+                audio_stream.download(filename=temp_path)
+
+                # Verify file was downloaded
+                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                    print(f"Success with pytube approach {i+1}!")
+                    return temp_path
+
+            except Exception as e:
+                print(f"Pytube approach {i+1} failed: {e}")
+                continue
+
+        raise Exception("All pytube approaches failed")
 
     def _download_with_ytdlp(self, url: str) -> str:
         temp_dir = tempfile.mkdtemp()
         print(f"Downloading to temp directory: {temp_dir}")
 
-        # Enhanced yt-dlp options to bypass restrictions
-        ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
-            'outtmpl': os.path.join(temp_dir, 'audio.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'extractaudio': True,
-            'audioformat': 'mp3',
-            'extract_flat': False,
-            'writethumbnail': False,
-            'writeinfojson': False,
-            'ignoreerrors': True,
-            # Add headers to bypass some restrictions
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        # Try multiple yt-dlp configurations
+        configs = [
+            # Config 1: Standard approach
+            {
+                'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
+                'outtmpl': os.path.join(temp_dir, 'audio.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
+            },
+            # Config 2: More aggressive extraction
+            {
+                'format': 'worst[height<=480]/best[height<=480]/worst',
+                'outtmpl': os.path.join(temp_dir, 'video.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+            },
+            # Config 3: Simple download with cookies
+            {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(temp_dir, 'content.%(ext)s'),
+                'quiet': False,
+                'no_warnings': False,
+                'cookiesfrombrowser': ('chrome',),
+                'ignoreerrors': True,
             }
-        }
+        ]
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-        except Exception as e:
-            print(f"yt-dlp download failed: {e}")
-            # Try with different format
-            ydl_opts['format'] = 'worst[ext=mp4]/worst'
+        for i, ydl_opts in enumerate(configs):
             try:
+                print(f"Trying yt-dlp config {i+1}/3...")
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
-            except Exception as e2:
-                raise Exception(f"Both yt-dlp attempts failed: {e}, {e2}")
 
-        import time
-        max_retries = 15
-        retry_count = 0
-
-        while retry_count < max_retries:
-            try:
+                # Check if any file was downloaded
                 downloaded_files = [f for f in os.listdir(temp_dir)
-                                    if f.endswith(('.m4a', '.mp3', '.mp4', '.webm', '.wav'))]
-                print(f"Found downloaded files: {downloaded_files}")
+                                    if f.endswith(('.m4a', '.mp3', '.mp4', '.webm', '.wav', '.mkv', '.flv'))]
 
-                if not downloaded_files:
-                    time.sleep(2)
-                    retry_count += 1
-                    continue
-
-                audio_path = os.path.join(temp_dir, downloaded_files[0])
-                print(f"Audio file path: {audio_path}")
-
-                if not os.path.exists(audio_path):
-                    time.sleep(2)
-                    retry_count += 1
-                    continue
-
-                file_size = os.path.getsize(audio_path)
-                print(f"File size: {file_size} bytes")
-
-                if file_size == 0:
-                    time.sleep(2)
-                    retry_count += 1
-                    continue
-
-                with open(audio_path, 'rb') as test_file:
-                    test_file.read(1024)
-
-                print(f"File is ready for transcription: {audio_path}")
-                return audio_path
+                if downloaded_files:
+                    audio_path = os.path.join(temp_dir, downloaded_files[0])
+                    if os.path.getsize(audio_path) > 0:
+                        print(
+                            f"Success with config {i+1}! Downloaded: {downloaded_files[0]}")
+                        return audio_path
 
             except Exception as e:
-                print(f"File not ready yet (attempt {retry_count + 1}): {e}")
-                time.sleep(2)
-                retry_count += 1
+                print(f"Config {i+1} failed: {e}")
+                continue
 
-        raise Exception(
-            "Failed to prepare audio file for transcription after multiple attempts")
+        raise Exception("All yt-dlp configurations failed")
 
     def _clean_youtube_url(self, url: str) -> str:
         if 'youtube.com/watch?v=' in url:
