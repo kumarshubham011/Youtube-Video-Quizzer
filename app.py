@@ -96,7 +96,7 @@ def main():
         groq_key = st.text_input(
             "GROQ API Key",
             type="password",
-            help="Enter your Groq API key"
+            help="Enter your Groq API key (free generous tier)"
         )
 
         if groq_key:

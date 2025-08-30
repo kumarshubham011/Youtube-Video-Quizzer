@@ -46,59 +46,109 @@ class YouTubeQuizzerPipeline:
     def download_youtube_audio(self, url: str) -> str:
         try:
             url = self._clean_youtube_url(url)
+            print(f"Attempting to download: {url}")
 
+            # Try yt-dlp first (more reliable for restricted videos)
             try:
-                return self._download_with_pytube(url)
-            except Exception as pytube_error:
-                print(f"Pytube failed, trying yt-dlp: {pytube_error}")
+                print("Trying yt-dlp first...")
                 return self._download_with_ytdlp(url)
+            except Exception as ytdlp_error:
+                print(f"yt-dlp failed: {ytdlp_error}")
+                print("Trying pytube as fallback...")
+                try:
+                    return self._download_with_pytube(url)
+                except Exception as pytube_error:
+                    print(f"Pytube also failed: {pytube_error}")
+                    raise Exception(
+                        f"Both download methods failed. yt-dlp: {ytdlp_error}, pytube: {pytube_error}")
 
         except Exception as e:
-            raise Exception(f"Error downloading YouTube video: {str(e)}")
+            # Provide helpful error message
+            error_msg = str(e)
+            if "403" in error_msg or "Forbidden" in error_msg:
+                raise Exception(
+                    "Video is restricted or private. Try a different public YouTube video.")
+            elif "404" in error_msg or "not found" in error_msg:
+                raise Exception("Video not found. Please check the URL.")
+            elif "age-restricted" in error_msg:
+                raise Exception(
+                    "Video is age-restricted and cannot be processed.")
+            else:
+                raise Exception(
+                    f"Error downloading YouTube video: {error_msg}")
 
     def _download_with_pytube(self, url: str) -> str:
-        yt = YouTube(url)
+        try:
+            yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
 
-        import time
-        time.sleep(1)
+            import time
+            time.sleep(2)
 
-        audio_stream = yt.streams.filter(only_audio=True).first()
-        if not audio_stream:
-            raise Exception("No audio stream found for this video")
+            audio_stream = yt.streams.filter(
+                only_audio=True, file_extension='mp4').first()
+            if not audio_stream:
+                audio_stream = yt.streams.filter(only_audio=True).first()
+            if not audio_stream:
+                raise Exception("No audio stream found for this video")
 
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_path = temp_file.name
-        temp_file.close()
+            temp_file = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".mp4")
+            temp_path = temp_file.name
+            temp_file.close()
 
-        audio_stream.download(filename=temp_path)
-        return temp_path
+            audio_stream.download(filename=temp_path)
+            return temp_path
+        except Exception as e:
+            print(f"Pytube download failed: {e}")
+            raise e
 
     def _download_with_ytdlp(self, url: str) -> str:
         temp_dir = tempfile.mkdtemp()
         print(f"Downloading to temp directory: {temp_dir}")
 
+        # Enhanced yt-dlp options to bypass restrictions
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
+            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
             'outtmpl': os.path.join(temp_dir, 'audio.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
+            'extractaudio': True,
+            'audioformat': 'mp3',
+            'extract_flat': False,
+            'writethumbnail': False,
+            'writeinfojson': False,
+            'ignoreerrors': True,
+            # Add headers to bypass some restrictions
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            print(f"yt-dlp download failed: {e}")
+            # Try with different format
+            ydl_opts['format'] = 'worst[ext=mp4]/worst'
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            except Exception as e2:
+                raise Exception(f"Both yt-dlp attempts failed: {e}, {e2}")
 
         import time
-        max_retries = 10
+        max_retries = 15
         retry_count = 0
 
         while retry_count < max_retries:
             try:
                 downloaded_files = [f for f in os.listdir(temp_dir)
-                                    if f.endswith(('.m4a', '.mp3', '.mp4', '.webm'))]
+                                    if f.endswith(('.m4a', '.mp3', '.mp4', '.webm', '.wav'))]
                 print(f"Found downloaded files: {downloaded_files}")
 
                 if not downloaded_files:
-                    time.sleep(1)
+                    time.sleep(2)
                     retry_count += 1
                     continue
 
@@ -106,7 +156,7 @@ class YouTubeQuizzerPipeline:
                 print(f"Audio file path: {audio_path}")
 
                 if not os.path.exists(audio_path):
-                    time.sleep(1)
+                    time.sleep(2)
                     retry_count += 1
                     continue
 
@@ -114,7 +164,7 @@ class YouTubeQuizzerPipeline:
                 print(f"File size: {file_size} bytes")
 
                 if file_size == 0:
-                    time.sleep(1)
+                    time.sleep(2)
                     retry_count += 1
                     continue
 
@@ -126,7 +176,7 @@ class YouTubeQuizzerPipeline:
 
             except Exception as e:
                 print(f"File not ready yet (attempt {retry_count + 1}): {e}")
-                time.sleep(1)
+                time.sleep(2)
                 retry_count += 1
 
         raise Exception(
