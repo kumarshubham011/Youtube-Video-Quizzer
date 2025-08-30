@@ -1,0 +1,14 @@
+streamlit>=1.32.0
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-groq==0.3.7
+langchain-huggingface>=0.1.0
+pytube>=15.0.0
+yt-dlp>=2025.8.27
+openai-whisper==20231117
+chromadb>=1.0.20
+sentence-transformers>=2.7.0
+transformers>=4.42.0
+python-dotenv==1.0.0
+numpy>=1.26.2
+pandas>=2.0.3
