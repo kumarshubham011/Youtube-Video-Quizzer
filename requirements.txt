@@ -27,5 +27,5 @@ pysqlite3-binary
 sentence-transformers
 transformers
 python-dotenv
-numpy
+numpy<2.0
 pandas
